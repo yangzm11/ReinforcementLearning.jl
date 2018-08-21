@@ -36,21 +36,18 @@ export DQN
 DQN(net; kargs...) = DQN(; net = Flux.gpu(net), kargs...)
 function defaultbuffer(learner::Union{DQN, DeepActorCritic}, env, preprocessor)
     state = preprocessstate(preprocessor, getstate(env)[1])
-    ArrayStateBuffer(capacity = typeof(learner) <: DQN ? learner.replaysize :
+    Buffer(capacity = typeof(learner) <: DQN ? learner.replaysize :
                                                          learner.nsteps + learner.nmarkov, 
-                     arraytype = typeof(state).name.wrapper,
-                     datatype = typeof(state[1]),
-                     elemshape = size(state))
+                                                         statetype = typeof(state))
 end
 function defaultpolicy(learner::Union{DQN, DeepActorCritic}, buffer)
     if learner.nmarkov == 1
         typeof(learner) <: DQN ? EpsilonGreedyPolicy(.1) : SoftmaxPolicy()
     else
-        a = buffer.states.data
-        data = getindex(a, map(x -> 1:x, size(a)[1:end-1])..., 1:learner.nmarkov)
+        dtype = typeof(buffer.states).parameters[1]
         NMarkovPolicy(typeof(learner) <: DQN ? EpsilonGreedyPolicy(.1) : 
                                                SoftmaxPolicy(),
-                      ArrayCircularBuffer(data, learner.nmarkov, 0, 0, false))
+                                               CircularBuffer{dtype}(learner.nmarkov))
     end
 end
 
@@ -65,15 +62,16 @@ huberloss(yhat, y::Flux.TrackedArray) = -2*dot(clamp.(yhat - y.data, -1, 1), y)/
 export huberloss
 
 @inline function selectaction(learner::Union{DQN, DeepActorCritic}, policy, state)
-    if learner.nmarkov == 1
-        selectaction(policy, learner.policynet(state))
-    else
+    selectaction(policy, learner.policynet(state))
+end
+@inline function selectaction(learner::Union{DQN, DeepActorCritic},
+                              policy::NMarkovPolicy, state)
         push!(policy.buffer, state)
+        if length(policy.buffer) < learner.nmarkov return 1 end # this is a hack
         selectaction(policy.policy, 
                      learner.policynet(nmarkovgetindex(policy.buffer, 
-                                                lastindex(policy.buffer),
-                                                learner.nmarkov)))
-    end
+                                                       learner.nmarkov,
+                                                       learner.nmarkov)))
 end
 function selecta(q, a)
     na, t = size(q)
@@ -87,7 +85,7 @@ function update!(learner::DQN, b)
     end
     (learner.t < learner.startlearningat || 
      learner.t % learner.updateevery != 0) && return
-    indices = StatsBase.sample(1:length(b.rewards), learner.minibatchsize, 
+    indices = StatsBase.sample(learner.nmarkov:length(b.rewards), learner.minibatchsize, 
                                replace = false)
     qa = learner.net(nmarkovgetindex(b.states, indices, learner.nmarkov))
     qat = learner.targetnet(nmarkovgetindex(b.states, indices .+ 1, learner.nmarkov))

@@ -22,6 +22,13 @@ function pushreturn!(b, r, done)
     push!(b.rewards, r)
     push!(b.done, done)
 end
+function nmarkovgetindex(b::CircularBuffer, idxs, nmarkov)
+    idx = vcat([collect(i - nmarkov + 1:i) for i in idxs]...)
+    bdim = size(b[1])
+    reshape(cat(b[idx]..., dims = length(bdim)), (bdim[1:end-1]..., 
+                                                  nmarkov,
+                                                  length(idxs)))
+end
 
 struct EpisodeBuffer{Ts, Ta}
     states::Array{Ts, 1}
