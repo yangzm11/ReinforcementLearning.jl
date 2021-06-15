@@ -6,7 +6,10 @@ export DuelingNetwork
 
 const PERLearners = Union{PrioritizedDQNLearner,RainbowLearner,IQNLearner}
 
-function RLBase.update!(learner::Union{DQNLearner, QRDQNLearner,REMDQNLearner,PERLearners}, t::AbstractTrajectory)
+function RLBase.update!(
+    learner::Union{DQNLearner,QRDQNLearner,REMDQNLearner,PERLearners},
+    t::AbstractTrajectory,
+)
     length(t[:terminal]) - learner.sampler.n <= learner.min_replay_history && return
 
     learner.update_step += 1
@@ -54,5 +57,5 @@ Flux.@functor DuelingNetwork
 function (m::DuelingNetwork)(state)
     x = m.base(state)
     val = m.val(x)
-    return val .+ m.adv(x) .- mean(m.adv(x), dims=1)
+    return val .+ m.adv(x) .- mean(m.adv(x), dims = 1)
 end
